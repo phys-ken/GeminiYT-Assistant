@@ -74,7 +74,7 @@ def extract_video_id(url):
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-# 動画データの取得
+# 動画データの取得（日本語字幕）
 def get_video_data(url):
     video_id = extract_video_id(url)
     if not video_id:
@@ -101,6 +101,51 @@ def get_video_data(url):
         subtitles = ["この動画では字幕が無効化されています。"]
     except NoTranscriptFound:
         subtitles = ["この動画には日本語字幕が存在しません。"]
+    except Exception as e:
+        subtitles = [f"字幕の取得中にエラーが発生しました: {e}"]
+
+    # 結果を辞書形式で返す
+    video_data = {
+        "video_url": standardized_url,
+        "title": title,
+        "description": description,
+        "thumbnail_url": thumbnail_url,
+        "subtitles": subtitles
+    }
+
+    # result.jsonに保存
+    with open(RESULT_FILE, "w", encoding="utf-8") as f:
+        json.dump(video_data, f, ensure_ascii=False, indent=4)
+
+    return video_data
+
+# 動画データの取得（標準字幕）
+def get_video_data_default(url):
+    video_id = extract_video_id(url)
+    if not video_id:
+        return {"error": "無効なURLです"}
+
+    # 標準化した動画URL
+    standardized_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # 動画情報の取得
+    try:
+        video_info = Video.getInfo(standardized_url)
+        title = video_info.get("title", "タイトルなし")
+        description = video_info.get("description", "説明なし")
+        # サムネイルURLの取得
+        thumbnail_url = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    except Exception as e:
+        return {"error": f"動画情報の取得中にエラーが発生しました: {e}"}
+
+    # 標準字幕の取得
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        subtitles = [entry['text'] for entry in transcript]
+    except TranscriptsDisabled:
+        subtitles = ["この動画では字幕が無効化されています。"]
+    except NoTranscriptFound:
+        subtitles = ["この動画には字幕が存在しません。"]
     except Exception as e:
         subtitles = [f"字幕の取得中にエラーが発生しました: {e}"]
 
@@ -177,10 +222,54 @@ def generate_with_gemini(prompt, text):
         messagebox.showerror("エラー", f"Gemini APIの呼び出し中にエラーが発生しました: {e}")
         return ""
 
-# 「取得」ボタンの処理
+# 「日本語字幕の取得」ボタンの処理
 def on_fetch():
     url = url_entry.get()
     result = get_video_data(url)
+    if "error" in result:
+        messagebox.showerror("エラー", result["error"])
+        return
+
+    # 動画情報の表示
+    title_label.config(text=result["title"])
+    description_text.config(state=tk.NORMAL)
+    description_text.delete('1.0', tk.END)
+    description_text.insert(tk.END, result["description"])
+    description_text.config(state=tk.DISABLED)
+
+    # サムネイル画像の表示
+    try:
+        response = requests.get(result["thumbnail_url"])
+        img_data = response.content
+        img = Image.open(BytesIO(img_data))
+        img = img.resize((320, 180))  # サイズ調整
+        photo = ImageTk.PhotoImage(img)
+        image_label.config(image=photo)
+        image_label.image = photo  # 参照を保持
+    except Exception:
+        # サムネイルが取得できない場合はデフォルト画像を表示
+        image_label.config(image=default_photo)
+        image_label.image = default_photo
+
+    # 字幕の表示
+    subtitles_text.config(state=tk.NORMAL)
+    subtitles_text.delete('1.0', tk.END)
+    subtitles_text.insert(tk.END, "\n".join(result["subtitles"]))
+    subtitles_text.config(state=tk.NORMAL)  # 編集可能にする
+
+    # 「字幕を一括コピー」ボタンを有効化
+    copy_all_button.config(state=tk.NORMAL)
+
+    # プロンプトのリフレッシュ
+    refresh_prompts()
+
+    # 「Geminiに送信」ボタンを有効化
+    send_button.config(state=tk.NORMAL)
+
+# 「標準字幕の取得」ボタンの処理
+def on_fetch_default():
+    url = url_entry.get()
+    result = get_video_data_default(url)
     if "error" in result:
         messagebox.showerror("エラー", result["error"])
         return
@@ -372,8 +461,18 @@ url_label = ttk.Label(main_frame, text="YouTubeのURLを入力してください
 url_label.grid(row=0, column=0, sticky="w")
 url_entry = ttk.Entry(main_frame, width=50)
 url_entry.grid(row=1, column=0, sticky="ew", pady=5)
-fetch_button = ttk.Button(main_frame, text="取得", command=on_fetch)
-fetch_button.grid(row=1, column=1, sticky="e", padx=5)
+
+# ボタンフレームの作成
+button_frame = ttk.Frame(main_frame)
+button_frame.grid(row=1, column=1, sticky="e", padx=5)
+
+# 「日本語字幕の取得」ボタン
+fetch_button = ttk.Button(button_frame, text="日本語字幕の取得", command=on_fetch)
+fetch_button.pack(side='left', padx=5)
+
+# 「標準字幕の取得」ボタン
+fetch_default_button = ttk.Button(button_frame, text="標準字幕の取得", command=on_fetch_default)
+fetch_default_button.pack(side='left', padx=5)
 
 # メッセージラベル
 message_label = ttk.Label(main_frame, text="", foreground="green")
