@@ -1,5 +1,7 @@
 # YouTube字幕取得＆Gemini API連携ツール
 
+https://github.com/user-attachments/assets/5a998fda-ebda-4cba-90db-0a3bc8a1f6c1
+
 以下のREADMEは生成AIで作成しました(後日修正予定です)
 
 ## 概要
