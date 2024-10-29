@@ -1,1 +1,3 @@
 tmp/
+.venv/
+activate_venv.command
